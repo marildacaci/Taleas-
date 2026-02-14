@@ -1,12 +1,17 @@
-const router = require("express").Router();
-const Membership = require("../models/Membership");
-const crud = require("../controllers/crudFactory");
-const membership = require("../controllers/membershipController");
+const express = require("express");
+const router = express.Router();
+const m = require("../controllers/membershipController");
+const requireAuth = require("../middlewares/requireAuth");
+const requireRole = require("../middlewares/requireRole");
 
-router.post("/", membership.create);
-router.get("/", crud.getAll(Membership));
-router.get("/:id", crud.getOne(Membership, "Membership"));
-router.put("/:id", crud.updateOne(Membership, "membership", "Membership"));
-router.delete("/:id", crud.deleteOne(Membership, "membership", "Membership"));
+router.post("/", requireAuth, m.create);
+router.post("/cancel", requireAuth, m.cancel);
+
+router.get("/user/:userId", requireRole("admin"), m.listByUser);
+
+router.get("/active", requireAuth, m.getActive);
+
+router.post("/jobs/expire", requireRole("admin"), m.runExpireJob);
+router.post("/jobs/reminder", requireRole("admin"), m.runReminderJob);
 
 module.exports = router;

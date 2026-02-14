@@ -39,7 +39,6 @@ async function createUser(input) {
       role: input?.role
     });
 
-    // FIX: notify para return
     notify("ACCOUNT_CREATED", { member: created }, { async: true });
 
     return created;

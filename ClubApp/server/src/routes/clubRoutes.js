@@ -1,16 +1,14 @@
-const router = require("express").Router();
-const Club = require("../models/Club");
-const crud = require("../controllers/crudFactory");
-const club = require("../controllers/clubController");
+const express = require("express");
+const router = express.Router();
+const c = require("../controllers/clubController");
+const requireRole = require("../middlewares/requireRole");
 
-router.post("/", club.create);
-router.get("/", crud.getAll(Club));
-router.get("/:id", crud.getOne(Club, "Club"));
+router.get("/", c.list);
+router.get("/:id", c.getOne);
 
-router.get("/:id/options", club.getOptions);
-router.post("/:id/join", club.join);
-
-router.put("/:id", crud.updateOne(Club, "club", "Club"));
-router.delete("/:id", club.delete);
+router.post("/", requireRole("admin"), c.create);
+router.patch("/:id", requireRole("admin"), c.update);
+router.patch("/:id/visibility", requireRole("admin"), c.setVisibility);
+router.delete("/:id", requireRole("admin"), c.remove);
 
 module.exports = router;
