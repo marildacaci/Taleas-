@@ -1,21 +1,42 @@
 const nodemailer = require("nodemailer");
 
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: Number(process.env.SMTP_PORT || 587),
-  secure: false,
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS
+let transporter = null;
+
+function buildTransporter() {
+  const host = process.env.SMTP_HOST;
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
+
+  if (!host || !user || !pass) return null;
+
+  return nodemailer.createTransport({
+    host,
+    port: Number(process.env.SMTP_PORT || 587),
+    secure: String(process.env.SMTP_SECURE || "false") === "true", // 587->false, 465->true
+    auth: { user, pass }
+  });
+}
+
+function getTransporter() {
+  if (!transporter) transporter = buildTransporter();
+  return transporter;
+}
+
+async function sendEmail({ from, to, cc, bcc, subject, html }) {
+  const t = getTransporter();
+
+  if (!t) {
+    console.warn("[EMAIL] Missing SMTP env. Skipping:", subject);
+    return;
   }
-});
 
-async function sendEmail({ to, subject, html }) {
-  if (!to) return;
+  if (!to && !cc && !bcc) return;
 
-  await transporter.sendMail({
-    from: process.env.FROM_EMAIL || process.env.SMTP_USER,
+  await t.sendMail({
+    from: from || process.env.FROM_EMAIL || process.env.SMTP_USER,
     to,
+    cc,
+    bcc,
     subject,
     html
   });

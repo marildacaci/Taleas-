@@ -3,23 +3,39 @@ const Club = require("../models/Club");
 const AppError = require("../utils/AppError");
 
 async function createPlan(payload) {
-  const { clubId } = payload;
+  const clubId = payload?.clubId; // FIX
   if (!clubId) throw new AppError("clubId is required", 400, "VALIDATION_ERROR");
 
   const club = await Club.findById(clubId).lean();
   if (!club) throw new AppError("Club not found", 404, "NOT_FOUND");
 
-  const name = String(payload.name || "").trim();
+  const name = String(payload?.name || "").trim();
   if (!name) throw new AppError("name is required", 400, "VALIDATION_ERROR");
+
+  const durationDays = Number(payload?.durationDays);
+  const price = Number(payload?.price);
+
+  if (!Number.isFinite(durationDays) || durationDays < 1) {
+    throw new AppError("durationDays must be >= 1", 400, "VALIDATION_ERROR");
+  }
+  if (!Number.isFinite(price) || price < 0) {
+    throw new AppError("price must be >= 0", 400, "VALIDATION_ERROR");
+  }
 
   try {
     return await Plan.create({
-      ...payload,
+      clubId,
       name,
-      includedActivities: (payload.includedActivities || []).map((x) => String(x).trim())
+      durationDays,
+      price,
+      currency: payload?.currency || "EUR",
+      includedActivities: (payload?.includedActivities || [])
+        .map((x) => String(x).trim())
+        .filter(Boolean),
+      isActive: payload?.isActive ?? true
     });
   } catch (err) {
-    if (err?.code === 11000) throw new AppError("Plan name must be unique within club", 409, "CONFLICT");
+    if (err?.code === 11000) throw new AppError("Plan name must be unique within club", 409, "CONFLICT", err.keyValue);
     throw err;
   }
 }
@@ -37,17 +53,28 @@ async function getPlanById(planId) {
 }
 
 async function updatePlan(planId, patch) {
-  if (patch.name) patch.name = String(patch.name).trim();
-  if (patch.includedActivities) patch.includedActivities = patch.includedActivities.map((x) => String(x).trim());
+  const safe = { ...patch };
+  if (safe.name != null) safe.name = String(safe.name).trim();
+  if (safe.includedActivities) {
+    safe.includedActivities = safe.includedActivities.map((x) => String(x).trim()).filter(Boolean);
+  }
 
   try {
-    const updated = await Plan.findByIdAndUpdate(planId, patch, { new: true, runValidators: true }).lean();
+    const updated = await Plan.findByIdAndUpdate(planId, safe, {
+      new: true,
+      runValidators: true
+    }).lean();
+
     if (!updated) throw new AppError("Plan not found", 404, "NOT_FOUND");
     return updated;
   } catch (err) {
-    if (err?.code === 11000) throw new AppError("Plan name must be unique within club", 409, "CONFLICT");
+    if (err?.code === 11000) throw new AppError("Plan name must be unique within club", 409, "CONFLICT", err.keyValue);
     throw err;
   }
+}
+
+async function deactivatePlan(planId) {
+  return updatePlan(planId, { isActive: false });
 }
 
 async function deletePlan(planId) {
@@ -56,4 +83,11 @@ async function deletePlan(planId) {
   return deleted;
 }
 
-module.exports = { createPlan, listPlansByClub, getPlanById, updatePlan, deletePlan };
+module.exports = {
+  createPlan,
+  listPlansByClub,
+  getPlanById,
+  updatePlan,
+  deactivatePlan,
+  deletePlan
+};

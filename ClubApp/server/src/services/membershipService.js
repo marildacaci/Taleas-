@@ -1,9 +1,9 @@
-const mongoose = require("mongoose");
 const Membership = require("../models/Membership");
 const User = require("../models/User");
 const Club = require("../models/Club");
 const Plan = require("../models/Plan");
 const AppError = require("../utils/AppError");
+const { notify } = require("./notificationService");
 
 function addDays(date, days) {
   const d = new Date(date);
@@ -12,8 +12,7 @@ function addDays(date, days) {
 }
 
 async function createMembership({ userId, clubId, planId, startAt = new Date() }, { session } = {}) {
-
-    const [user, club, plan] = await Promise.all([
+  const [user, club, plan] = await Promise.all([
     User.findById(userId).session(session || null).lean(),
     Club.findById(clubId).session(session || null).lean(),
     Plan.findById(planId).session(session || null).lean()
@@ -22,6 +21,7 @@ async function createMembership({ userId, clubId, planId, startAt = new Date() }
   if (!user) throw new AppError("User not found", 404, "NOT_FOUND");
   if (!club) throw new AppError("Club not found", 404, "NOT_FOUND");
   if (!plan) throw new AppError("Plan not found", 404, "NOT_FOUND");
+
   if (String(plan.clubId) !== String(clubId)) {
     throw new AppError("Plan does not belong to this club", 400, "VALIDATION_ERROR");
   }
@@ -37,12 +37,13 @@ async function createMembership({ userId, clubId, planId, startAt = new Date() }
   const end = addDays(start, plan.durationDays);
 
   try {
-    return await Membership.create(
+    const docs = await Membership.create(
       [{ userId, clubId, planId, startAt: start, endAt: end, status: "active" }],
       { session }
-    ).then((docs) => docs[0]);
+    );
+    return docs[0];
   } catch (err) {
-    if (err?.code === 11000) throw new AppError("Active membership already exists", 409, "CONFLICT");
+    if (err?.code === 11000) throw new AppError("Active membership already exists", 409, "CONFLICT", err.keyValue);
     throw err;
   }
 }
@@ -58,16 +59,54 @@ async function cancelMembership({ userId, clubId }) {
   return m;
 }
 
+async function getUserMemberships(userId) {
+  return Membership.find({ userId }).sort({ createdAt: -1 }).lean();
+}
+
+async function getMyActiveMembership({ userId, clubId }) {
+  return Membership.findOne({ userId, clubId, status: "active" }).lean();
+}
+
 async function expireMembershipsJob(now = new Date()) {
   const res = await Membership.updateMany(
     { status: "active", endAt: { $lt: now } },
     { $set: { status: "expired" } }
   );
-  return res; 
+  return { modified: res.modifiedCount ?? res.nModified ?? 0 };
 }
 
-async function getUserMemberships(userId) {
-  return Membership.find({ userId }).sort({ createdAt: -1 }).lean();
+async function membershipExpiryReminderJob(daysAhead = 3) {
+  const now = new Date();
+  const target = new Date(now);
+  target.setDate(target.getDate() + Number(daysAhead));
+
+  const start = new Date(target); start.setHours(0, 0, 0, 0);
+  const end = new Date(target); end.setHours(23, 59, 59, 999);
+
+  const ms = await Membership.find({
+    status: "active",
+    endAt: { $gte: start, $lte: end }
+  }).lean();
+
+  for (const m of ms) {
+    const [member, club] = await Promise.all([
+      User.findById(m.userId).lean(),
+      Club.findById(m.clubId).lean()
+    ]);
+
+    if (member?.email) {
+      notify("MEMBERSHIP_EXPIRING", { member, club, membership: m }, { async: true });
+    }
+  }
+
+  return { count: ms.length };
 }
 
-module.exports = {createMembership, cancelMembership, expireMembershipsJob, getUserMemberships};
+module.exports = {
+  createMembership,
+  cancelMembership,
+  getUserMemberships,
+  getMyActiveMembership,
+  expireMembershipsJob,
+  membershipExpiryReminderJob
+};

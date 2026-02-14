@@ -1,113 +1,73 @@
-const nodemailer = require("nodemailer");
-const { membershipCreatedTemplate } = require("../templates/EmailTemplates");
+const { sendEmail } = require("./emailService");
 
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS
+const fmtDate = (x) => (x ? new Date(x).toLocaleDateString() : "-");
+
+const TEMPLATES = {
+  ACCOUNT_CREATED: (d) => ({
+    to: d.member?.email,
+    subject: `Welcome to ${process.env.APP_NAME || "Club App"}`,
+    html: `<h2>Welcome</h2><p>Hi ${d.member?.firstName || "Member"}, your account was created.</p>`
+  }),
+
+  MEMBERSHIP_CREATED: (d) => ({
+  to: d.member?.email,
+  subject: `Membership active - ${d.club?.name || "Club"}`,
+  html: `
+    <h2>Membership created</h2>
+    <p>Hi ${d.member?.firstName || "Member"},</p>
+
+    <p>Club: <b>${d.club?.name || ""}</b></p>
+    <p>Plan: <b>${d.plan?.name || ""}</b></p>
+
+    <p>Period: <b>${fmtDate(d.membership?.startAt)}</b> - <b>${fmtDate(d.membership?.endAt)}</b></p>
+
+    <hr/>
+
+    <p><b>Total paid:</b> ${Number(d.payment?.amount ?? d.plan?.price ?? 0).toFixed(2)} ${d.payment?.currency || d.plan?.currency || "EUR"}</p>
+    ${d.payment?.paidAt ? `<p><b>Paid at:</b> ${fmtDate(d.payment.paidAt)}</p>` : ""}
+  `
+  }),
+
+  MEMBERSHIP_EXPIRING: (d) => ({
+    to: d.member?.email,
+    subject: `Membership expiring - ${d.club?.name || "Club"}`,
+    html: `
+      <h2>Membership expiring</h2>
+      <p>Hi ${d.member?.firstName || "Member"},</p>
+      <p>Your membership at <b>${d.club?.name || ""}</b> expires on <b>${fmtDate(d.membership?.endAt)}</b>.</p>
+    `
+  }),
+
+  CLUB_DELETED: (d) => ({
+    to: process.env.FROM_EMAIL || process.env.SMTP_USER,
+    bcc: (d.members || []).map((m) => m?.email).filter(Boolean),
+    subject: `Club deleted - ${d.clubName || ""}`,
+    html: `<h2>Club deleted</h2><p>The club <b>${d.clubName || ""}</b> has been removed.</p>`
+  })
+};
+
+async function notify(type, data, { async = true } = {}) {
+  const builder = TEMPLATES[type];
+  if (!builder) return;
+
+  const msg = builder(data);
+  if (!msg?.to && !msg?.cc && !msg?.bcc) return;
+
+  const payload = {
+    from: process.env.FROM_EMAIL || process.env.SMTP_USER,
+    ...msg
+  };
+
+  if (async) {
+    setImmediate(() =>
+      sendEmail(payload).catch((e) =>
+        console.error("[EMAIL] failed:", type, payload?.to || "(bcc)", e?.message || e)
+      )
+    );
+    return;
   }
-});
 
-console.log("EMAIL_USER exists?", Boolean(process.env.EMAIL_USER));
-console.log("EMAIL_PASS exists?", Boolean(process.env.EMAIL_PASS));
-
-exports.notifyClubDeleted = async ({ members, clubName }) => {
-  if (!members?.length) return;
-
-  const emails = members.filter((m) => m.email).map((m) => m.email);
-  if (!emails.length) return;
-
-  await transporter.sendMail({
-    from: `"Club App" <${process.env.EMAIL_USER}>`,
-    to: emails,
-    subject: `Club ${clubName} was deleted`,
-    html: `
-      <h2>Club Deleted</h2>
-      <p>The club <strong>${clubName}</strong> has been removed.</p>
-    `
-  });
-};
-
-exports.notifyMembershipCreated = async ({ lang = "en", member, clubName, membership }) => {
-  if (!member?.email) return;
-
-  const memberName =
-    `${member.firstName || ""} ${member.lastName || ""}`.trim() || "Member";
-
-  const { subject, html } = membershipCreatedTemplate(lang, {
-    memberName,
-    clubName,
-    planName: membership?.planName || "",
-    price: membership?.price ?? "",
-    startDate: membership?.startDate,
-    endDate: membership?.endDate
-  });
-
-  await transporter.sendMail({
-    from: `"Club App" <${process.env.EMAIL_USER}>`,
-    to: member.email,
-    subject,
-    html
-  });
-};
-
-exports.notifyMembershipExpiryReminder = async ({ member, clubName, membership }) => {
-  if (!member?.email) return;
-
-  const end = membership?.endDate ? new Date(membership.endDate).toLocaleDateString() : "";
-  await transporter.sendMail({
-    from: `"Club App" <${process.env.EMAIL_USER}>`,
-    to: member.email,
-    subject: `Reminder: membership expires soon - ${clubName}`,
-    html: `
-      <h2>Membership expiring soon</h2>
-      <p>Hi ${member.firstName || member.name || ""},</p>
-      <p>Your membership for <b>${clubName}</b> will expire on <b>${end}</b>.</p>
-    `
-  });
-};
-
-exports.notifyMembershipExpired = async ({ member, clubName, membership }) => {
-  if (!member?.email) return;
-
-  const end = membership?.endDate ? new Date(membership.endDate).toLocaleDateString() : "";
-  await transporter.sendMail({
-    from: `"Club App" <${process.env.EMAIL_USER}>`,
-    to: member.email,
-    subject: `Membership expired - ${clubName}`,
-    html: `
-      <h2>Membership expired</h2>
-      <p>Hi ${member.firstName || member.name || ""},</p>
-      <p>Your membership for <b>${clubName}</b> expired on <b>${end}</b>.</p>
-    `
-  });
-};
-
-exports.notifyRegistrationCancelled = async ({ member, clubName, activity }) => {
-  if (!member?.email) return;
-
-  await transporter.sendMail({
-    from: `"Club App" <${process.env.EMAIL_USER}>`,
-    to: member.email,
-    subject: `Registration cancelled - ${clubName}`,
-    html: `
-      <h2>Registration cancelled</h2>
-      <p>Hi ${member.firstName || member.name || ""},</p>
-      <p>Your registration for <b>${activity?.name || "the activity"}</b> at <b>${clubName}</b> has been cancelled.</p>
-    `
-  });
-};
-
-async function testEmail() {
-  const info = await transporter.sendMail({
-    from: `"Club App" <${process.env.EMAIL_USER}>`,
-    to: process.env.EMAIL_USER,
-    subject: "TEST EMAIL - ClubApp",
-    html: "<h2>Email works </h2><p>This is a test.</p>"
-  });
-
-  console.log("Email sent:", info.messageId);
+  await sendEmail(payload);
 }
 
-testEmail().catch(console.error);
+module.exports = { notify, TEMPLATES };
