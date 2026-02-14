@@ -41,6 +41,7 @@ async function upsertMany(Model, items, uniqueKey = "key") {
     process.exit(0);
   } catch (err) {
     console.error("Seed failed:", err);
+    try { await mongoose.connection.close(); } catch {}
     process.exit(1);
   }
 })();

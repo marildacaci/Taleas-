@@ -32,34 +32,6 @@ const DEFAULT_CATALOG_BY_TYPE = {
   ]
 };
 
-function normalizePlans(plans) {
-  if (!Array.isArray(plans) || plans.length === 0) return null;
-
-  const cleaned = plans
-    .map((p) => ({
-      name: String(p?.name || "").trim(),
-      durationDays: Number(p?.durationDays),
-      price: Number(p?.price)
-    }))
-    .filter((p) => p.name && Number.isFinite(p.durationDays) && p.durationDays > 0 && Number.isFinite(p.price) && p.price >= 0);
-
-  return cleaned.length ? cleaned : null;
-}
-
-function normalizeCatalog(activityCatalog) {
-  if (!Array.isArray(activityCatalog) || activityCatalog.length === 0) return null;
-
-  const cleaned = activityCatalog
-    .map((a) => ({
-      name: String(a?.name || "").trim(),
-      activityType: a?.activityType || "class"
-    }))
-    .filter((a) => a.name);
-
-  return cleaned.length ? cleaned : null;
-}
-
-
 exports.getOptions = asyncHandler(async (req, res) => {
   const club = await Club.findById(req.params.id).lean();
   if (!club) return res.status(404).json({ error: req.t("NOT_FOUND", "Club") });
