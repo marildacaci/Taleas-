@@ -1,18 +1,16 @@
 const mongoose = require("mongoose");
 
-async function connectDB() {
-  const uri = process.env.MONGODB_URI;
+module.exports = async function connectDB() {
+  mongoose.set("autoIndex", process.env.NODE_ENV !== "production");
 
-  if(!uri) {
-    throw new Error("MONGODB_URI is missing in .env!")
+  await mongoose.connect(process.env.MONGODB_URI);
+  console.log("✅ MongoDB connected!");
+
+  if (process.env.NODE_ENV !== "production") {
+    await mongoose.syncIndexes();
+    console.log("✅ Indexes synced");
   }
-  mongoose.set("strictQuery", true);
+};
 
-  await mongoose.connect(uri, {
-    serverSelectionTimeoutMS: 10000,
-  });
+console.log("MONGODB_URI =", process.env.MONGODB_URI);
 
-  console.log("MongoDB connected!")
-}  
-
-module.exports = connectDB;

@@ -6,13 +6,13 @@ const UserSchema = new mongoose.Schema(
     lastName: { type: String, required: true,trim: true },
     email: { type: String, required: true, lowercase: true, trim: true },
     passwordHash: { type: String, required: true, select: false },
-    phoneNumber: { type: String, trim: true, sparse: true },
+    phoneNumber: { type: String, trim: true },
     age: { type: Number, default: null, min: 18 },
     role: { type: String, enum: ["user", "admin"], default: "user" }
   }, { timestamps: true }
 );
 
-UserSchema.index({ email: 1 }, { unique: true });
-UserSchema.index({ phoneNumber: 1 }, { unique: true, sparse: true });
+UserSchema.index( { email: 1 }, { name: "user_email_unique", unique: true });
 
+UserSchema.index({ phoneNumber: 1 },{ name: "user_phone_unique", unique: true, partialFilterExpression: { phoneNumber: { $type: "string" } }});
 module.exports = mongoose.model("User", UserSchema);

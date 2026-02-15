@@ -11,7 +11,10 @@ function addDays(date, days) {
   return d;
 }
 
-async function createMembership({ userId, clubId, planId, startAt = new Date() }, { session } = {}) {
+async function createMembership(
+  { userId, clubId, planId, startAt = new Date() },
+  { session } = {}
+) {
   const [user, club, plan] = await Promise.all([
     User.findById(userId).session(session || null).lean(),
     Club.findById(clubId).session(session || null).lean(),
@@ -27,23 +30,30 @@ async function createMembership({ userId, clubId, planId, startAt = new Date() }
   }
   if (!plan.isActive) throw new AppError("Plan is not active", 400, "VALIDATION_ERROR");
 
-  const existingActive = await Membership.findOne({ userId, clubId, status: "active" })
-    .session(session || null)
-    .lean();
-
-  if (existingActive) throw new AppError("Active membership already exists", 409, "CONFLICT");
-
   const start = new Date(startAt);
   const end = addDays(start, plan.durationDays);
 
   try {
     const docs = await Membership.create(
-      [{ userId, clubId, planId, startAt: start, endAt: end, status: "active" }],
+      [
+        {
+          userId,
+          clubId,
+          planId,
+          startAt: start,
+          endAt: end,
+          status: "active",
+          expiringNotifiedAt: null 
+        }
+      ],
       { session }
     );
+
     return docs[0];
   } catch (err) {
-    if (err?.code === 11000) throw new AppError("Active membership already exists", 409, "CONFLICT", err.keyValue);
+    if (err?.code === 11000) {
+      throw new AppError("Active membership already exists", 409, "CONFLICT");
+    }
     throw err;
   }
 }
@@ -69,7 +79,7 @@ async function getMyActiveMembership({ userId, clubId }) {
 
 async function expireMembershipsJob(now = new Date()) {
   const res = await Membership.updateMany(
-    { status: "active", endAt: { $lt: now } },
+    { status: "active", endAt: { $lte: now } },
     { $set: { status: "expired" } }
   );
   return { modified: res.modifiedCount ?? res.nModified ?? 0 };
@@ -80,12 +90,16 @@ async function membershipExpiryReminderJob(daysAhead = 3) {
   const target = new Date(now);
   target.setDate(target.getDate() + Number(daysAhead));
 
-  const start = new Date(target); start.setHours(0, 0, 0, 0);
-  const end = new Date(target); end.setHours(23, 59, 59, 999);
+  const start = new Date(target);
+  start.setHours(0, 0, 0, 0);
+
+  const end = new Date(target);
+  end.setHours(23, 59, 59, 999);
 
   const ms = await Membership.find({
     status: "active",
-    endAt: { $gte: start, $lte: end }
+    endAt: { $gte: start, $lte: end },
+    expiringNotifiedAt: null 
   }).lean();
 
   for (const m of ms) {
@@ -96,6 +110,11 @@ async function membershipExpiryReminderJob(daysAhead = 3) {
 
     if (member?.email) {
       notify("MEMBERSHIP_EXPIRING", { member, club, membership: m }, { async: true });
+
+      await Membership.updateOne(
+        { _id: m._id, expiringNotifiedAt: null },
+        { $set: { expiringNotifiedAt: new Date() } }
+      );
     }
   }
 
