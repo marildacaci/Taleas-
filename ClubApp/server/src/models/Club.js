@@ -4,9 +4,10 @@ const PlanSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
     durationDays: { type: Number, required: true, min: 1 },
-    price: { type: Number, required: true, min: 0 }
+    price: { type: Number, required: true, min: 0 },
+    maxActivities: { type: Number, required: true, min: 1 }
   },
-  { _id: false }
+  { _id: true }
 );
 
 const ClubSchema = new mongoose.Schema(
@@ -21,7 +22,6 @@ const ClubSchema = new mongoose.Schema(
     isPublic: { type: Boolean, default: false },
 
     plans: { type: [PlanSchema], default: [] },
-
     activities: { type: [String], default: [] },
 
     createdBy: { type: String, default: null },

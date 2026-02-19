@@ -3,6 +3,17 @@ const router = express.Router();
 const m = require("../controllers/membershipController");
 const requireAuth = require("../middlewares/requireCognitoAuth");
 const requireRole = require("../middlewares/requireRole");
+console.log("[membershipRoutes] handlers:", {
+  create: typeof m.create,
+  getActive: typeof m.getActive,
+  cancel: typeof m.cancel,
+  listMy: typeof m.listMy,
+  listByUser: typeof m.listByUser,
+  runExpireJob: typeof m.runExpireJob,
+  runReminderJob: typeof m.runReminderJob,
+  requireAuth: typeof requireAuth,
+  requireRole: typeof requireRole
+});
 
 router.post("/", requireAuth, m.create);
 router.get("/active", requireAuth, m.getActive);

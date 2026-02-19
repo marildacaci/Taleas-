@@ -12,18 +12,11 @@ if (region && userPoolId) {
   issuer = `https://cognito-idp.${region}.amazonaws.com/${userPoolId}`;
   jwks = createRemoteJWKSet(new URL(`${issuer}/.well-known/jwks.json`));
 } else {
-  console.warn(
-    "[AUTH] Missing Cognito env vars (COGNITO_REGION/COGNITO_USER_POOL_ID)"
-  );
+  console.warn("[AUTH] Missing Cognito env vars (COGNITO_REGION/COGNITO_USER_POOL_ID)");
 }
 
 function pickUsername(payload) {
-  return (
-    payload["cognito:username"] ||
-    payload.username ||
-    payload.preferred_username ||
-    null
-  );
+  return payload["cognito:username"] || payload.username || payload.preferred_username || null;
 }
 
 function normalizeGroups(g) {
@@ -56,32 +49,42 @@ async function requireCognitoAuth(req, res, next) {
 
     const { payload } = await jwtVerify(token, jwks, { issuer });
 
-    if (payload.token_use !== "access") {
+    const tokenUse = payload.token_use;
+    if (tokenUse !== "access" && tokenUse !== "id") {
       return res.status(401).json({
         ok: false,
         error: "UNAUTHORIZED",
-        message: "Access token required"
+        message: "Invalid token"
       });
     }
 
-    if (payload.client_id !== clientId) {
-      return res.status(401).json({
-        ok: false,
-        error: "UNAUTHORIZED",
-        message: "Invalid client_id"
-      });
+    if (tokenUse === "access") {
+      if (payload.client_id !== clientId) {
+        return res.status(401).json({
+          ok: false,
+          error: "UNAUTHORIZED",
+          message: "Invalid client_id"
+        });
+      }
+    } else {
+      if (payload.aud !== clientId) {
+        return res.status(401).json({
+          ok: false,
+          error: "UNAUTHORIZED",
+          message: "Invalid aud"
+        });
+      }
     }
 
     const groups = normalizeGroups(payload["cognito:groups"]);
 
     req.auth = {
       sub: payload.sub,
-      tokenUse: payload.token_use,
+      tokenUse,
       email: payload.email || null,
       username: pickUsername(payload),
       groups,
       scope: payload.scope || null,
-
       _raw: payload
     };
 
@@ -97,8 +100,7 @@ async function requireCognitoAuth(req, res, next) {
     const name = e?.name || "";
     const code = e?.code || "";
     const expired =
-      name.toLowerCase().includes("expired") ||
-      String(code).toLowerCase().includes("expired");
+      name.toLowerCase().includes("expired") || String(code).toLowerCase().includes("expired");
 
     if (process.env.NODE_ENV !== "production") {
       console.error("[AUTH] verify failed:", name || code, e?.message || e);
