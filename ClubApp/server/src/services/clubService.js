@@ -4,11 +4,18 @@ const User = require("../models/User");
 const AppError = require("../utils/AppError");
 const { notify } = require("./notificationService");
 
+const allowedTypes = new Set(["fitness", "dance", "coding"]);
+
 async function createClub(input) {
   const name = String(input?.name || "").trim();
-  const type = input?.type;
+  const type = String(input?.type || "").trim();
 
-  if (!name || !type) throw new AppError("Name and type are required", 400, "VALIDATION_ERROR");
+  if (!name || !type) {
+    throw new AppError("Name and type are required", 400, "VALIDATION_ERROR");
+  }
+  if (!allowedTypes.has(type)) {
+    throw new AppError("Invalid club type", 400, "VALIDATION_ERROR");
+  }
 
   try {
     return await Club.create({
@@ -16,11 +23,21 @@ async function createClub(input) {
       type,
       description: input?.description ?? "",
       address: input?.address ?? "",
-      isPublic: input?.isPublic ?? true
+      coverImage: input?.coverImage ?? "",
+      isPublic: input?.isPublic ?? false, 
+      plans: Array.isArray(input?.plans) ? input.plans : [],
+
+      createdBy: input?.createdBy ?? null,
+      updatedBy: input?.updatedBy ?? null
     });
   } catch (err) {
     if (err?.code === 11000) {
-      throw new AppError("Club name must be unique", 409, "CONFLICT", err.keyValue);
+      throw new AppError(
+        "Club name must be unique",
+        409,
+        "CONFLICT",
+        err.keyValue
+      );
     }
     throw err;
   }
@@ -48,6 +65,11 @@ async function getClubById(id) {
 async function updateClub(id, patch) {
   const safe = { ...patch };
   if (safe.name != null) safe.name = String(safe.name).trim();
+  if (safe.type != null) safe.type = String(safe.type).trim();
+
+  if (safe.type != null && !allowedTypes.has(safe.type)) {
+    throw new AppError("Invalid club type", 400, "VALIDATION_ERROR");
+  }
 
   try {
     const updated = await Club.findByIdAndUpdate(id, safe, {
@@ -58,13 +80,23 @@ async function updateClub(id, patch) {
     if (!updated) throw new AppError("Club not found", 404, "NOT_FOUND");
     return updated;
   } catch (err) {
-    if (err?.code === 11000) throw new AppError("Club name must be unique", 409, "CONFLICT", err.keyValue);
+    if (err?.code === 11000) {
+      throw new AppError(
+        "Club name must be unique",
+        409,
+        "CONFLICT",
+        err.keyValue
+      );
+    }
     throw err;
   }
 }
 
-async function setClubVisibility(id, isPublic) {
-  return updateClub(id, { isPublic: Boolean(isPublic) });
+async function setClubVisibility(id, isPublic, opts = {}) {
+  return updateClub(id, {
+    isPublic: Boolean(isPublic),
+    ...(opts?.updatedBy ? { updatedBy: opts.updatedBy } : {})
+  });
 }
 
 async function deleteClub(id) {
@@ -80,16 +112,26 @@ async function deleteClub(id) {
     );
   }
 
-  const memberships = await Membership.find({ clubId: id }).select("userId").lean();
+  const memberships = await Membership.find({ clubId: id })
+    .select("userId")
+    .lean();
   const userIds = [...new Set(memberships.map((m) => String(m.userId)))];
 
   const members = userIds.length
-    ? await User.find({ _id: { $in: userIds } }).select("email firstName lastName").lean()
+    ? await User.find({ _id: { $in: userIds } })
+        .select("email firstName lastName")
+        .lean()
     : [];
 
   const deleted = await Club.findByIdAndDelete(id).lean();
 
+try {
   notify("CLUB_DELETED", { members, clubName: club.name }, { async: true });
+} catch (e) {
+  if (process.env.NODE_ENV !== "production") {
+    console.error("[notify] failed:", e?.message || e);
+  }
+}
 
   return deleted;
 }

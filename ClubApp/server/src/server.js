@@ -1,43 +1,39 @@
 require("dotenv").config();
-
 const express = require("express");
-const connectDB = require("./config/db");
-
-const authJwt = require("./middlewares/authJwt"); // lexon Bearer token dhe vendos req.user
-const errorHandler = require("./middlewares/errorHandler");
-
-const routes = require("./routes"); // routes/index.js
-const { startMembershipJobs } = require("./jobs/membershipJobs");
-const { runMigrations } = require("./migrations/runMigrations");
-
+const cors = require("cors");
+const mongoose = require("mongoose");
 
 const app = express();
 
+app.use(
+  cors({
+    origin: process.env.FRONTEND_ORIGIN,
+    credentials: true
+  })
+);
+
 app.use(express.json());
 
-app.use(authJwt);
+app.get("/health", (req, res) => res.json({ ok: true }));
 
-app.get("/", (req, res) => {
-  res.json({ ok: true, message: "API running" });
-});
+async function connectDB() {
+  const uri = process.env.MONGODB_URI;
+  if (!uri) throw new Error("MONGODB_URI missing in .env");
 
-app.use("/api", routes);
-
-app.use(errorHandler);
-
-async function start() {
-  await connectDB();
-  await runMigrations();
-
-  startMembershipJobs();
-
-  const PORT = Number(process.env.PORT || 5000);
-  app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
+  mongoose.set("strictQuery", true);
+  await mongoose.connect(uri, { serverSelectionTimeoutMS: 8000 });
+  console.log("✅ MongoDB connected!");
 }
 
-start().catch((e) => {
-  console.error("Startup failed:", e);
-  process.exit(1);
-});
+const apiRoutes = require("./routes"); 
+
+(async () => {
+  try {
+    await connectDB();
+    const port = process.env.PORT || 5000;
+    app.listen(port, () => console.log(`🚀 Server running on http://localhost:${port}`));
+  } catch (err) {
+    console.error("Failed to start:", err.message);
+    process.exit(1);
+  }
+})();

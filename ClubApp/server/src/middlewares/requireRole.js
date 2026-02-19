@@ -1,16 +1,29 @@
 module.exports = function requireRole(...allowedRoles) {
   return (req, res, next) => {
-    if (!req.user?.id) {
+    if (!req.auth?.sub) {
       return res.status(401).json({
         ok: false,
-        error: { code: "UNAUTHORIZED", message: "Authentication required" }
+        error: "UNAUTHORIZED",
+        message: "Authentication required"
       });
     }
 
-    if (!allowedRoles.includes(req.user.role)) {
+    const dbRole = req.user?.role || null;
+
+    const groups = Array.isArray(req.auth?.groups) ? req.auth.groups : [];
+    const isAdmin = groups.includes("admin");
+
+    const allowed = allowedRoles.map(String);
+
+    const ok =
+      (dbRole && allowed.includes(dbRole)) ||
+      (allowed.includes("admin") && isAdmin);
+
+    if (!ok) {
       return res.status(403).json({
         ok: false,
-        error: { code: "FORBIDDEN", message: "Insufficient permissions" }
+        error: "FORBIDDEN",
+        message: "Insufficient permissions"
       });
     }
 

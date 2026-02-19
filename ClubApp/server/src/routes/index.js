@@ -1,11 +1,11 @@
 const express = require("express");
 const router = express.Router();
 
-router.use("/auth", require("./authRoutes"));
+router.use("/me", require("./meRoutes"));       
+
 router.use("/clubs", require("./clubRoutes"));
-router.use("/users", require("./userRoutes"));
-router.use("/plans", require("./planRoutes"));
-router.use("/memberships", require("./membershipRoutes"));
-router.use("/payments", require("./paymentRoutes"));
+router.use("/memberships", require("./membershipRoutes")); 
+router.use("/uploads", require("./uploadRoutes"));
+router.use("/catalog", require("./catalogRoutes"));
 
 module.exports = router;

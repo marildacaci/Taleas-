@@ -1,34 +1,33 @@
-import { useState } from "react";
-import ClubsPage from "./pages/ClubsPage";
-import ActivitiesPage from "./pages/ActivitiesPage";
-import "./styles/app.css";
+import React from "react";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { AuthProvider } from "./auth/AuthContext";
+
+import Home from "./pages/Home";
+import Login from "./pages/Login";
+import Register from "./pages/Register";
+import ProtectedRoute from "./components/ProtectedRoute";
+
+import AdminDashboard from "./pages/AdminDashboard"; // ✅
 
 export default function App() {
-  const [lang, setLang] = useState("en");
-  const [page, setPage] = useState("clubs"); // "clubs" | "activities"
-
   return (
-    <>
-      <div style={{ padding: 12, display: "flex", gap: 10, justifyContent: "center" }}>
-        <button className="btnGhost" onClick={() => setPage("clubs")}>
-          Clubs
-        </button>
-        <button className="btnGhost" onClick={() => setPage("activities")}>
-          Activities
-        </button>
+    <BrowserRouter>
+      <AuthProvider>
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
 
-        <select value={lang} onChange={(e) => setLang(e.target.value)}>
-          <option value="en">English</option>
-          <option value="al">Shqip</option>
-          <option value="es">Español</option>
-        </select>
-      </div>
-
-      {page === "clubs" ? (
-        <ClubsPage lang={lang} setLang={setLang} />
-      ) : (
-        <ActivitiesPage lang={lang} />
-      )}
-    </>
+          <Route
+            path="/admin"
+            element={
+              <ProtectedRoute adminOnly>
+                <AdminDashboard />
+              </ProtectedRoute>
+            }
+          />
+        </Routes>
+      </AuthProvider>
+    </BrowserRouter>
   );
 }
