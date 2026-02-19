@@ -1,6 +1,6 @@
-// src/components/modals/ClubDetailsModal.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { getClubCatalog } from "../../api/catalog";
+import { joinClub } from "../../api/memberships";
 import "../../style/clubDetailsModal.css";
 
 function toErrMsg(e) {
@@ -12,7 +12,7 @@ function toErrMsg(e) {
   );
 }
 
-export default function ClubDetailsModal({ open, club, onClose, onJoin }) {
+export default function ClubDetailsModal({ open, club, onClose }) {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
@@ -21,48 +21,50 @@ export default function ClubDetailsModal({ open, club, onClose, onJoin }) {
   const [selectedPlanName, setSelectedPlanName] = useState("");
   const [selectedActivities, setSelectedActivities] = useState([]);
 
+  const [joining, setJoining] = useState(false);
+  const [joinedUntil, setJoinedUntil] = useState(null); // ISO string nga backend
+
   const type = useMemo(() => club?.type || "fitness", [club?.type]);
 
-  const plans = useMemo(() => {
-    const list = catalog?.plans;
-    return Array.isArray(list) ? list : [];
-  }, [catalog]);
+  const plans = useMemo(() => (Array.isArray(catalog?.plans) ? catalog.plans : []), [catalog]);
+  const activities = useMemo(() => (Array.isArray(catalog?.activities) ? catalog.activities : []), [catalog]);
 
-  const activities = useMemo(() => {
-    const list = catalog?.activities;
-    return Array.isArray(list) ? list : [];
-  }, [catalog]);
-
-  const selectedPlan = useMemo(() => {
-    return plans.find((p) => p?.name === selectedPlanName) || null;
-  }, [plans, selectedPlanName]);
+  const selectedPlan = useMemo(
+    () => plans.find((p) => p?.name === selectedPlanName) || null,
+    [plans, selectedPlanName]
+  );
 
   const maxActivities = useMemo(() => {
     const n = Number(selectedPlan?.maxActivities);
     return Number.isFinite(n) && n > 0 ? n : 0;
   }, [selectedPlan]);
 
-  const canPickActivities = Boolean(selectedPlan && maxActivities > 0);
+  const isPremium = useMemo(
+    () => String(selectedPlanName || "").toLowerCase() === "premium",
+    [selectedPlanName]
+  );
 
   const joinEnabled = useMemo(() => {
     if (!selectedPlan) return false;
     if (!activities.length) return false;
 
-    // Premium: auto all selected
-    if (selectedPlanName.toLowerCase() === "premium") {
+    if (isPremium) {
       return selectedActivities.length === activities.length && activities.length > 0;
     }
-
-    // Basic (or others): must pick exactly maxActivities
     return selectedActivities.length === maxActivities && maxActivities > 0;
-  }, [selectedPlan, selectedPlanName, activities, selectedActivities, maxActivities]);
+  }, [selectedPlan, activities, selectedActivities, maxActivities, isPremium]);
 
-  // Load catalog when opens / type changes
+  const isJoinedActive = useMemo(() => {
+    if (!joinedUntil) return false;
+    const until = new Date(joinedUntil).getTime();
+    return Number.isFinite(until) && until > Date.now();
+  }, [joinedUntil]);
+
+  // Load catalog on open/type
   useEffect(() => {
     if (!open || !club) return;
 
     let alive = true;
-
     async function run() {
       try {
         setErr("");
@@ -70,10 +72,9 @@ export default function ClubDetailsModal({ open, club, onClose, onJoin }) {
         setCatalog(null);
         setSelectedPlanName("");
         setSelectedActivities([]);
+        setJoinedUntil(null);
 
         const data = await getClubCatalog(type);
-
-        // tolerant parsing (in case backend wraps it differently)
         const normalized = data?.data ? data.data : data;
 
         if (!alive) return;
@@ -88,60 +89,76 @@ export default function ClubDetailsModal({ open, club, onClose, onJoin }) {
     }
 
     run();
-    return () => {
-      alive = false;
-    };
+    return () => { alive = false; };
   }, [open, club, type]);
 
-  // When plan changes -> update activity selection rules
+  // Plan change rules
   useEffect(() => {
     if (!selectedPlan) {
       setSelectedActivities([]);
       return;
     }
 
-    const planLower = String(selectedPlan?.name || "").toLowerCase();
-
-    // Premium => auto select all + lock
-    if (planLower === "premium") {
-      setSelectedActivities([...activities]);
+    if (String(selectedPlan?.name || "").toLowerCase() === "premium") {
+      setSelectedActivities([...activities]); // auto select all
       return;
     }
 
-    // Basic/other => keep only up to maxActivities
-    setSelectedActivities((prev) => prev.slice(0, maxActivities));
+    setSelectedActivities((prev) => prev.slice(0, maxActivities)); // trim
   }, [selectedPlanName, selectedPlan, activities, maxActivities]);
 
   if (!open || !club) return null;
 
   function toggleActivity(a) {
     if (!selectedPlan) return;
-    const planLower = String(selectedPlan?.name || "").toLowerCase();
-    if (planLower === "premium") return; // locked
+    if (isPremium) return; // locked
 
     setSelectedActivities((prev) => {
       const exists = prev.includes(a);
       if (exists) return prev.filter((x) => x !== a);
 
-      // limit
-      if (prev.length >= maxActivities) return prev;
+      if (prev.length >= maxActivities) return prev; // limit
       return [...prev, a];
     });
   }
 
-  function handleJoin() {
-    if (!joinEnabled) return;
+  async function handleJoin() {
+    if (!joinEnabled || joining || isJoinedActive) return;
 
-    const payload = {
-      clubId: club._id,
-      planName: selectedPlanName,
-      activities: selectedActivities
-    };
+    try {
+      setErr("");
+      setJoining(true);
 
-    // onJoin optional (you can hook to backend membership create)
-    if (typeof onJoin === "function") onJoin(payload);
+      // ✅ backend do bllokojë memberships të tjera nëse ka 1 aktiv
+      const res = await joinClub({
+        clubId: club._id,
+        planName: selectedPlanName,
+        activities: selectedActivities
+      });
 
-    onClose?.();
+      // supozojm backend kthen: { ok:true, data:{ membership:{ endAt } } } ose { data:{ endAt } }
+      const m = res?.data?.membership || res?.data || null;
+      const endAt = m?.endAt || m?.endsAt || null;
+
+      if (!endAt) {
+        // fallback: përdor durationDays nga plan (jo ideale, por funksionon)
+        const days = Number(selectedPlan?.durationDays || 30);
+        const until = new Date(Date.now() + days * 86400000).toISOString();
+        setJoinedUntil(until);
+      } else {
+        setJoinedUntil(endAt);
+      }
+    } catch (e) {
+      // nëse backend kthen 409 “ACTIVE_MEMBERSHIP_EXISTS”
+      const code = e?.payload?.error?.code || e?.payload?.code || "";
+      if (String(code).includes("ACTIVE_MEMBERSHIP_EXISTS")) {
+        setErr("You already have an active membership. You can’t join another club until it expires.");
+      } else {
+        setErr(toErrMsg(e));
+      }
+    } finally {
+      setJoining(false);
+    }
   }
 
   return (
@@ -152,10 +169,7 @@ export default function ClubDetailsModal({ open, club, onClose, onJoin }) {
             <div className="cdm-title">{club.name}</div>
             <div className="cdm-sub">{club.type}</div>
           </div>
-
-          <button className="cdm-x" type="button" onClick={onClose} aria-label="Close">
-            ✕
-          </button>
+          <button className="cdm-x" type="button" onClick={onClose}>✕</button>
         </div>
 
         {loading ? <div className="cdm-banner">Loading…</div> : null}
@@ -179,66 +193,58 @@ export default function ClubDetailsModal({ open, club, onClose, onJoin }) {
 
           <div className="cdm-sectionHead">
             <div className="cdm-sectionTitle">Choose subscription</div>
-            <div className="cdm-hint">
-              {selectedPlanName ? "Select activities below" : "Select a plan to continue"}
-            </div>
+            <div className="cdm-hint">{selectedPlanName ? "Select activities below" : "Select a plan to continue"}</div>
           </div>
 
-          {!plans.length ? (
-            <div className="cdm-empty">No plans available.</div>
-          ) : (
-            <div className="cdm-planList">
-              {plans.map((p) => {
-                const active = p?.name === selectedPlanName;
-                return (
-                  <button
-                    key={`${p?.name}-${p?.durationDays}-${p?.maxActivities}`}
-                    type="button"
-                    className={`cdm-plan ${active ? "is-active" : ""}`}
-                    onClick={() => setSelectedPlanName(p?.name || "")}
-                  >
-                    <div className="cdm-planName">{p?.name}</div>
-                    <div className="cdm-planMeta">
-                      {p?.durationDays} days • max activities: {p?.maxActivities}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
+          <div className="cdm-planList">
+            {plans.map((p) => {
+              const active = p?.name === selectedPlanName;
+              return (
+                <button
+                  key={`${p?.name}-${p?.durationDays}-${p?.maxActivities}`}
+                  type="button"
+                  className={`cdm-plan ${active ? "is-active" : ""}`}
+                  onClick={() => setSelectedPlanName(p?.name || "")}
+                  disabled={isJoinedActive} // s’ka kuptim të ndryshosh nëse je joined
+                >
+                  <div className="cdm-planName">{p?.name}</div>
+                  <div className="cdm-planMeta">
+                    {p?.durationDays} days • max activities: {p?.maxActivities}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
 
           <div className="cdm-divider" />
 
           <div className="cdm-sectionHead">
             <div className="cdm-sectionTitle">Choose activities</div>
             <div className="cdm-hint">
-              {selectedPlanName ? `Selected: ${selectedActivities.length}/${maxActivities || activities.length}` : "Select a plan first"}
+              {!selectedPlanName
+                ? "Select a plan first"
+                : isPremium
+                  ? `Selected: ${selectedActivities.length}/${activities.length}`
+                  : `Selected: ${selectedActivities.length}/${maxActivities}`}
             </div>
           </div>
 
           {!selectedPlan ? (
             <div className="cdm-empty">Select a plan first.</div>
-          ) : !activities.length ? (
-            <div className="cdm-empty">
-              No activities found in catalog.
-            </div>
           ) : (
             <div className="cdm-chips">
               {activities.map((a) => {
                 const checked = selectedActivities.includes(a);
-                const premiumLock = String(selectedPlanName).toLowerCase() === "premium";
-                const disabled = premiumLock;
-
                 return (
                   <button
                     key={a}
                     type="button"
                     className={`cdm-chip ${checked ? "is-checked" : ""}`}
                     onClick={() => toggleActivity(a)}
-                    disabled={disabled}
-                    title={disabled ? "Premium selects all activities automatically" : ""}
+                    disabled={isPremium || isJoinedActive}
                   >
-                    {a}
+                    <span className="cdm-chipText">{a}</span>
+                    {checked ? <span className="cdm-chipTick">✓</span> : null}
                   </button>
                 );
               })}
@@ -251,11 +257,11 @@ export default function ClubDetailsModal({ open, club, onClose, onJoin }) {
             className="cdm-btn cdm-btnPrimary"
             type="button"
             onClick={handleJoin}
-            disabled={!joinEnabled}
-            title={!joinEnabled ? "Complete plan + activity selection first" : ""}
+            disabled={!joinEnabled || joining || isJoinedActive}
           >
-            Join this club
+            {isJoinedActive ? "Joined" : (joining ? "Joining..." : "Join this club")}
           </button>
+
           <button className="cdm-btn" type="button" onClick={onClose}>
             Close
           </button>
