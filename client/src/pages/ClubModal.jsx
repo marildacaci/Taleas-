@@ -69,12 +69,24 @@ export default function ClubModal({
       const data = await getClubCatalog(t);
 
       const plans = Array.isArray(data?.plans) ? data.plans : [];
-      const activities = Array.isArray(data?.activities) ? data.activities : [];
+
+      // ✅ Accept both shapes:
+      // - template endpoint: activities: ["Gym", ...]
+      // - if later you return catalog: [{name,...}]
+      const raw = Array.isArray(data?.activities)
+        ? data.activities
+        : Array.isArray(data?.catalog)
+          ? data.catalog
+          : [];
+
+      const activities = raw
+        .map((a) => (typeof a === "string" ? a : String(a?.name || "").trim()))
+        .filter(Boolean);
+
       const desc = typeof data?.description === "string" ? data.description : "";
 
       onChange("plans", plans);
       onChange("activities", activities);
-
       onChange("description", desc);
     } catch (e) {
       setCatalogErr(toErrMsg(e) || "Failed to load catalog.");
@@ -278,14 +290,13 @@ export default function ClubModal({
           </div>
 
           <div className="am-section">
-            <div className="am-sectionTitle">Plans </div>
+            <div className="am-sectionTitle">Plans</div>
             {loadingCatalog ? <div className="am-muted">Loading plans...</div> : null}
 
             <div className="am-planList">
               {(form.plans || []).map((p) => (
                 <div key={`${p.name}-${p.durationDays}-${p.maxActivities}`} className="am-planRow">
                   <div className="am-planName">{p.name}</div>
-
                   <div className="am-planMeta">
                     {p.durationDays} days • max activities: {p.maxActivities}
                   </div>

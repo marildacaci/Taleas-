@@ -5,6 +5,12 @@ import { apiGet } from "../api/client";
 import ClubDetailsModal from "../components/modals/ClubDetailsModal";
 import "../style/home.css";
 
+function isActiveEndAt(endAt) {
+  if (!endAt) return false;
+  const t = new Date(endAt).getTime();
+  return Number.isFinite(t) && t > Date.now();
+}
+
 export default function Home() {
   const { me, signOut } = useAuth();
   const nav = useNavigate();
@@ -16,18 +22,14 @@ export default function Home() {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(null);
 
+  const [joinedMap, setJoinedMap] = useState({});
+
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef(null);
 
   const username = useMemo(() => {
     if (!me) return "";
-    return (
-      me?.username ||
-      me?.preferred_username ||
-      me?.name ||
-      me?.email?.split?.("@")?.[0] ||
-      "user"
-    );
+    return me?.username || me?.preferred_username || me?.name || me?.email?.split?.("@")?.[0] || "user";
   }, [me]);
 
   useEffect(() => {
@@ -78,6 +80,10 @@ export default function Home() {
     nav("/login");
   }
 
+  function handleJoined({ clubId, endAt }) {
+    setJoinedMap((prev) => ({ ...prev, [clubId]: endAt }));
+  }
+
   return (
     <div className="home-page">
       <header className="home-header">
@@ -93,30 +99,17 @@ export default function Home() {
                 title="Profile"
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                  <path
-                    d="M12 12a4.5 4.5 0 1 0-4.5-4.5A4.5 4.5 0 0 0 12 12Z"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                  />
-                  <path
-                    d="M20 21a8 8 0 1 0-16 0"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
+                  <path d="M12 12a4.5 4.5 0 1 0-4.5-4.5A4.5 4.5 0 0 0 12 12Z" stroke="currentColor" strokeWidth="2" />
+                  <path d="M20 21a8 8 0 1 0-16 0" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
                 </svg>
               </button>
 
               {profileOpen ? (
                 <div className="home-profileMenu" role="menu">
                   <div className="home-profileHeader">
-                    <div className="home-avatar">
-                      {(me?.firstName || username).charAt(0).toUpperCase()}
-                    </div>
+                    <div className="home-avatar">{(me?.firstName || username).charAt(0).toUpperCase()}</div>
                     <div className="home-profileInfo">
-                      <div className="home-profileName">
-                        {(me?.firstName || "").trim()} {(me?.lastName || "").trim()}
-                      </div>
+                      <div className="home-profileName">{(me?.firstName || "").trim()} {(me?.lastName || "").trim()}</div>
                       <div className="home-profileEmail">{me?.email}</div>
                     </div>
                   </div>
@@ -128,17 +121,14 @@ export default function Home() {
                       <div className="home-profileLabel">Username</div>
                       <div className="home-profileValue">{username}</div>
                     </div>
-
                     <div className="home-profileRow">
                       <div className="home-profileLabel">Age</div>
                       <div className="home-profileValue">{me?.age ?? "—"}</div>
                     </div>
-
                     <div className="home-profileRow">
                       <div className="home-profileLabel">Phone</div>
                       <div className="home-profileValue">{me?.phoneNumber ?? "—"}</div>
                     </div>
-
                     <div className="home-profileRow">
                       <div className="home-profileLabel">Role</div>
                       <div className="home-profileValue">{me?.role ?? "user"}</div>
@@ -172,30 +162,64 @@ export default function Home() {
         {err ? <div className="home-error">{err}</div> : null}
 
         <div className="home-grid">
-          {clubs.map((c) => (
-            <button key={c._id} className="home-card" onClick={() => openClub(c)}>
-              {c.coverImage ? (
-                <img className="home-cover" src={c.coverImage} alt={c.name} />
-              ) : (
-                <div className="home-cover home-cover--empty" />
-              )}
+          {clubs.map((c) => {
+            const endAt = joinedMap[c._id];
+            const joined = isActiveEndAt(endAt);
 
-              <div className="home-cardBody">
-                <div className="home-cardTitle">{c.name}</div>
-                <div className="home-cardType">{c.type}</div>
-
-                {c.description ? (
-                  <div className="home-cardDesc">
-                    {c.description.length > 80 ? c.description.slice(0, 80) + "…" : c.description}
+            return (
+              <button
+                key={c._id}
+                className="home-card"
+                onClick={() => openClub(c)}
+                style={{ position: "relative" }}
+              >
+                {joined ? (
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: 10,
+                      right: 10,
+                      background: "#16a34a",
+                      color: "#fff",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      padding: "6px 10px",
+                      borderRadius: 999,
+                      zIndex: 2
+                    }}
+                  >
+                    Joined
                   </div>
                 ) : null}
-              </div>
-            </button>
-          ))}
+
+                {c.coverImage ? (
+                  <img className="home-cover" src={c.coverImage} alt={c.name} />
+                ) : (
+                  <div className="home-cover home-cover--empty" />
+                )}
+
+                <div className="home-cardBody">
+                  <div className="home-cardTitle">{c.name}</div>
+                  <div className="home-cardType">{c.type}</div>
+
+                  {c.description ? (
+                    <div className="home-cardDesc">
+                      {c.description.length > 80 ? c.description.slice(0, 80) + "…" : c.description}
+                    </div>
+                  ) : null}
+                </div>
+              </button>
+            );
+          })}
         </div>
       </main>
 
-      <ClubDetailsModal open={open} club={active} onClose={closeClub} />
+      <ClubDetailsModal
+        open={open}
+        club={active}
+        onClose={closeClub}
+        onJoined={handleJoined}
+      />
     </div>
   );
 }

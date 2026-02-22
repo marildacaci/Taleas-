@@ -1,13 +1,20 @@
 import React from "react";
 
-export default function ClubCard({ club }) {
+export default function ClubCard({ club, onOpen }) {
   return (
     <div
+      onClick={() => onOpen?.(club)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") onOpen?.(club);
+      }}
       style={{
         border: "1px solid #ddd",
         borderRadius: 12,
         overflow: "hidden",
-        background: "#fff"
+        background: "#fff",
+        cursor: "pointer"
       }}
     >
       {club.coverImage ? (
@@ -48,6 +55,26 @@ export default function ClubCard({ club }) {
             📍 {club.address}
           </p>
         )}
+
+        <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-end" }}>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation(); // mos e double-trigger click
+              onOpen?.(club);
+            }}
+            style={{
+              border: "1px solid #ddd",
+              background: "#111",
+              color: "#fff",
+              padding: "8px 12px",
+              borderRadius: 10,
+              cursor: "pointer"
+            }}
+          >
+            View / Join
+          </button>
+        </div>
       </div>
     </div>
   );
